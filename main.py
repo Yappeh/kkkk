@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 from flask_wtf import FlaskForm
 from wtforms import StringField, TextAreaField, SubmitField, IntegerField, validators, FileField
 from flask_uploads import UploadSet, configure_uploads, IMAGES
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 
 Base = declarative_base()
@@ -29,7 +30,6 @@ class BusinessInfo(Base):
     operatinghours = Column('operatinghours', String)
     filename = Column('filename', String)
     # Relationship
-    feed = relationship('Feed')
 
     def __init__(self, company, companydesc, locationname, address, hotline, email, website, operatinghours, filename):
         self.company = company
@@ -74,11 +74,12 @@ class BusinessInfo(Base):
 class Feed(Base):
     __tablename__ = 'feed'
     id = Column('id', Integer, primary_key=True)
-    parent_id = Column(Integer, ForeignKey('business.id'))
-    business_info = relationship('BusinessInfo')
+    parent_id = 1
     blogger = Column('blogger', String)
     blog = Column('blog', String)
     filename = Column('filename', String)
+    feed = relationship("BusinessInfo", backref='business', lazy='dynamic', passive_deletes=True,
+                        secondary=BusinessInfo)
 
     def __init__(self, blogger, blog, filename):
         self.blogger = blogger
@@ -119,21 +120,21 @@ configure_uploads(app, photos)
 
 
 #
-engine = create_engine('sqlite:///feed.db', echo=True)
-Base.metadata.create_all(bind=engine)
-Session1 = sessionmaker(bind=engine)
-list = []
+engine1 = create_engine('sqlite:///feed.db', echo=True)
+Base.metadata.create_all(bind=engine1)
+Session1 = sessionmaker(bind=engine1)
+list1 = []
 
 
 def profiledb_retrieve():
-    global list
-    list.clear()
-    session = Session()
-    feed = session.query(Feed).all()
+    global list1
+    list1.clear()
+    session1 = Session1()
+    feed = session1.query(Feed).all()
     for feeds in feed:
-        list.append(feeds)
-    session.close()
-    return len(list)
+        list1.append(feeds)
+    session1.close()
+    return len(list1)
 
 
 photos = UploadSet('photos', IMAGES)
@@ -197,27 +198,34 @@ def form():
         return render_template('addBusiness.html', form=form)
 
 
-@app.route("/<name>", methods=['GET', 'POST'])
+@app.route("/profile/<name>", methods=['GET', 'POST'])
 def status(name):
     form = PostUpdate(request.form)
+    # global list
+    # listlen = matchdb_retrieve()
+    session = Session()
+    r = session.query(BusinessInfo).all()
+    p = []
+    for i in r:
+        p.append(i)
+    listlen = len(p)
+    if form.validate_on_submit() and "photo" in request.files:
+        blogger = name
+        blog = form.blog.data
+        filename = photos.save(request.files["photo"])
+        session1 = Session1()
+        feded = Feed(blogger, blog, filename)
+        m = session1.query(BusinessInfo).filter_by(id=1).first()
+        feded.feed.append(m)
+        session1.add(feded)
+        session1.commit()
+        session1.close()
+        flash('success')
 
-    if request.method == 'POST':
-        if form.validate_on_submit() and "photo" in request.files:
-            blogger = "ded"
-            blog = form.blog.data
-            filename = photos.save(request.files["photo"])
-            session = Session()
-
-            session.add(Feed(blogger, blog, filename))
-            session.commit()
-            session.close()
-            flash('success')
-            return render_template('businessProf.html', form=form, name=name)
-        else:
-            flash('All fields are required.')
-            return "u"
-    elif request.method == 'GET':
-        return render_template('businessProf.html', form=form)
+        return render_template('businessProf.html', form=form, name=name, list=p, listlen=listlen)
+    else:
+        flash('All fields are required.')
+        return render_template('businessProf.html', form=form, name=name, list=p, listlen=listlen)
 
 
 if __name__ == "__main__":
